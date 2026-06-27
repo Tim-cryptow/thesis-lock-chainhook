@@ -1,5 +1,7 @@
 -- Generic events table for the Chainhook -> Supabase template. One row per
--- matching contract print event, keyed on tx_id so redelivery is idempotent.
+-- transaction, keyed on tx_id so redelivery is idempotent. A transaction that
+-- emits more than one matching print event keeps the last event; see the README
+-- for how to make the key composite if you need every event.
 --
 -- Supabase is an idempotent, rollback-aware index of the chain, not the source
 -- of truth: it can be rebuilt at any time by replaying from the predicate's

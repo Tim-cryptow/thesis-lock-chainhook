@@ -13,7 +13,7 @@ events table and a contract-agnostic decoder.
 
 - Exposes `POST /api/chainhooks`, a Hiro Chainhook HTTP-POST receiver.
 - Filters each delivery to `SmartContractEvent` print events from your contract,
-  decodes the Clarity tuple defensively, and writes one row per matching event.
+  decodes the Clarity tuple defensively, and writes one row per transaction.
 - Handles chain reorganizations: a `rollback` marks affected rows `reverted=true`;
   a re-`apply` un-reverts them. Upserts are keyed on `tx_id`, so redelivery and
   full replay are safe no-ops.
@@ -161,7 +161,11 @@ richer queries.
 
 ## Known limits
 
-- One row per matching print event.
+- One row per transaction. The table is keyed on `tx_id`, so if a single
+  transaction emits more than one matching print event, the last event in that
+  transaction wins. To capture every event, add an event index to the table and
+  make the primary key composite (for example `(tx_id, event_index)`), then set
+  the route's upsert `onConflict` to match.
 - Large backfills may need a lower Hiro batch size.
 - It indexes Stacks `print` events only; it does not track other event types or
   general chain state.

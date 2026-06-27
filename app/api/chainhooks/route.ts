@@ -151,7 +151,17 @@ export async function POST(req: Request) {
     const rolledBack = (payload.rollback ?? [])
       .flatMap(eventRowsFromBlock)
       .map((row) => row.tx_id);
-    const rows = (payload.apply ?? []).flatMap(eventRowsFromBlock);
+
+    // The table is keyed on tx_id, so a transaction that emits more than one
+    // matching print event would otherwise produce duplicate conflict targets in
+    // a single upsert (which Postgres rejects). De-duplicate by tx_id, keeping the
+    // last matching event in the transaction. Multi-event contracts that need
+    // every event should add an event index to the key (see the README).
+    const byTxId = new Map<string, EventRow>();
+    for (const row of (payload.apply ?? []).flatMap(eventRowsFromBlock)) {
+      byTxId.set(row.tx_id, row);
+    }
+    const rows = Array.from(byTxId.values());
 
     // No-op fast path: most deliveries contain nothing for us. Acknowledge
     // without touching Supabase, so a no-op never depends on the database.
