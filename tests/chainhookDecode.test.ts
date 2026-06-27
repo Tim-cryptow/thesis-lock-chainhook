@@ -90,6 +90,15 @@ describe("decodeEventTuple", () => {
     });
   });
 
+  it("keeps a flat tuple that has a Clarity field named value", () => {
+    const value = { event: "sale", value: "u100" };
+    expect(decodeEventTuple(value)).toEqual({
+      topic: "sale",
+      fields: value,
+      raw: value,
+    });
+  });
+
   it("returns topic null when the discriminator field is absent", () => {
     const value = { hash: "0xabc" };
     const decoded = decodeEventTuple(value);

@@ -66,12 +66,25 @@ export function toUint(input: unknown): number | null {
 }
 
 // Return the tuple's fields whether the tuple is flat or wrapped in { value }.
+// Only unwrap a genuine { value } envelope: the inner value must itself be a
+// tuple object and this level must not already carry the discriminator field.
+// Otherwise a flat tuple with a real Clarity field named "value" (for example
+// { event: "sale", value: "u100" }) would be collapsed to that scalar and the
+// event silently dropped.
 function tupleFields(input: unknown): Record<string, unknown> | null {
-  const value = unwrap(input);
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const obj = input as Record<string, unknown>;
+  const inner = obj["value"];
+  const isEnvelope =
+    "value" in obj &&
+    !(EVENT_DISCRIMINATOR_FIELD in obj) &&
+    !!inner &&
+    typeof inner === "object" &&
+    !Array.isArray(inner);
+  if (isEnvelope) {
+    return inner as Record<string, unknown>;
   }
-  return null;
+  return obj;
 }
 
 // Decode a contract's print tuple into a generic { topic, fields, raw }. Returns
