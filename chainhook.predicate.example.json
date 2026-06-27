@@ -1,0 +1,23 @@
+{
+  "chain": "stacks",
+  "uuid": "<GENERATE_A_UUID>",
+  "name": "<YOUR_EVENT_NAME>",
+  "version": 1,
+  "networks": {
+    "mainnet": {
+      "start_block": "<YOUR_DEPLOY_BLOCK>",
+      "decode_clarity_values": true,
+      "if_this": {
+        "scope": "print_event",
+        "contract_identifier": "<YOUR_CONTRACT>",
+        "contains": "<YOUR_EVENT_TOPIC>"
+      },
+      "then_that": {
+        "http_post": {
+          "url": "<YOUR_DEPLOYMENT_URL>/api/chainhooks",
+          "authorization_header": "Bearer <CHAINHOOK_AUTH_TOKEN>"
+        }
+      }
+    }
+  }
+}
