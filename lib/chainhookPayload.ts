@@ -39,7 +39,9 @@ type ChainhookTransaction = {
   operations?: ChainhookOperation[];
   metadata?: {
     success?: boolean;
+    // Some payload shapes name the caller "sender", others "sender_address".
     sender?: string;
+    sender_address?: string;
     receipt?: { events?: ChainhookEvent[] };
   };
 };
@@ -81,7 +83,7 @@ function toRow(
   return {
     tx_id: txId,
     block_height: blockHeight,
-    sender: tx.metadata?.sender ?? null,
+    sender: tx.metadata?.sender ?? tx.metadata?.sender_address ?? null,
     topic: decoded.topic,
     fields: decoded.fields,
     raw: decoded.raw,
@@ -92,6 +94,14 @@ function toRow(
 // Collect the print-event data a transaction carries, from both payload shapes:
 // receipt events of type "SmartContractEvent", and operations of type
 // "contract_log". Either may be present depending on the Chainhook delivery.
+//
+// The receipt-event path is authoritative: with decode_clarity_values: true the
+// data.value is the decoded Clarity tuple, which decodeEventTuple reads directly.
+// The contract_log operation path is best-effort: in some hosted shapes its value
+// is a serialized form (hex / repr) rather than a decoded tuple, in which case
+// decodeEventTuple returns null and the entry is skipped - the receipt-event entry
+// for the same transaction still indexes it, so no event is lost. We intentionally
+// do not deserialize raw Clarity here to avoid pulling in a Clarity decoder.
 function printEventData(tx: ChainhookTransaction): PrintEventData[] {
   const out: PrintEventData[] = [];
   for (const event of tx.metadata?.receipt?.events ?? []) {

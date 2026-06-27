@@ -54,6 +54,31 @@ describe("eventRowsFromBlock", () => {
     });
   });
 
+  it("falls back to sender_address when sender is absent", () => {
+    const rows = eventRowsFromBlock({
+      block_identifier: { index: 5 },
+      transactions: [
+        {
+          transaction_identifier: { hash: "0x0a" },
+          metadata: {
+            success: true,
+            sender_address: "SP-from-address",
+            receipt: {
+              events: [
+                {
+                  type: "SmartContractEvent",
+                  data: { contract_identifier: "SP.c", topic: "print", value },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].sender).toBe("SP-from-address");
+  });
+
   it("reads a print event from operations (contract_log)", () => {
     const rows = eventRowsFromBlock({
       block_identifier: { index: 7 },
