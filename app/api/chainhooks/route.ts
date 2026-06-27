@@ -1,57 +1,14 @@
 import { timingSafeEqual } from "node:crypto";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { decodeEventTuple, type DecodedEvent } from "@/lib/chainhookDecode";
+import {
+  blockEnvelope,
+  eventRowsFromBlock,
+  type ChainhookPayload,
+  type EventRow,
+} from "@/lib/chainhookPayload";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-// The contract whose print events we ingest, e.g. "SP....address.contract-name".
-// Set this to your own contract; it is the primary server-side filter alongside
-// the predicate's own contract_identifier match.
-const CONTRACT_ID = process.env.CONTRACT_ID ?? "";
-
-// Optional secondary guard on the decoded application topic. The predicate's
-// "contains" already filters server-side, so leave this unset to index every
-// print event from the contract, or set it to keep only one event topic.
-const EVENT_TOPIC = process.env.EVENT_TOPIC ?? "";
-
-// Minimal shape of the Hiro Chainhook Stacks payload we rely on. Everything is
-// runtime-guarded below; these types are for readability only and are never trusted.
-type ChainhookEvent = {
-  type?: string;
-  data?: { contract_identifier?: string; topic?: string; value?: unknown };
-};
-
-type ChainhookTransaction = {
-  transaction_identifier?: { hash?: string };
-  metadata?: {
-    success?: boolean;
-    sender?: string;
-    receipt?: { events?: ChainhookEvent[] };
-  };
-};
-
-type ChainhookBlock = {
-  block_identifier?: { index?: number; hash?: string };
-  transactions?: ChainhookTransaction[];
-};
-
-type ChainhookPayload = {
-  apply?: ChainhookBlock[];
-  rollback?: ChainhookBlock[];
-};
-
-// One row of the generic public.events table. Add typed columns of your own by
-// mapping them from decoded.fields (see the README worked example).
-type EventRow = {
-  tx_id: string;
-  block_height: number;
-  sender: string | null;
-  topic: string | null;
-  fields: Record<string, unknown>;
-  raw: unknown;
-  reverted: boolean;
-};
 
 // Permissive CORS, matching the reference. Not required for server-to-server
 // delivery, but harmless and convenient for manual probes.
@@ -74,49 +31,6 @@ function tokenMatches(provided: string, expected: string): boolean {
   const b = Buffer.from(expected);
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
-}
-
-function toRow(
-  txId: string,
-  blockHeight: number,
-  tx: ChainhookTransaction,
-  decoded: DecodedEvent,
-): EventRow {
-  return {
-    tx_id: txId,
-    block_height: blockHeight,
-    sender: tx.metadata?.sender ?? null,
-    topic: decoded.topic,
-    fields: decoded.fields,
-    raw: decoded.raw,
-    reverted: false,
-  };
-}
-
-// Pull matching event rows from a block. Skips failed transactions and any event
-// that is not our contract's print of the expected (optional) topic.
-function eventRowsFromBlock(block: ChainhookBlock): EventRow[] {
-  const blockHeight = block.block_identifier?.index ?? 0;
-  const rows: EventRow[] = [];
-  for (const tx of block.transactions ?? []) {
-    if (tx.metadata?.success === false) continue;
-    const txId = tx.transaction_identifier?.hash;
-    if (!txId) continue;
-    for (const event of tx.metadata?.receipt?.events ?? []) {
-      if (event.type !== "SmartContractEvent") continue;
-      const data = event.data;
-      if (!data) continue;
-      // "print" is Chainhook's wire topic for Clarity print events.
-      if (data.topic !== "print") continue;
-      if (CONTRACT_ID && data.contract_identifier !== CONTRACT_ID) continue;
-      const decoded = decodeEventTuple(data.value);
-      if (!decoded) continue;
-      // EVENT_TOPIC is a secondary guard on the decoded application topic.
-      if (EVENT_TOPIC && decoded.topic !== EVENT_TOPIC) continue;
-      rows.push(toRow(txId, blockHeight, tx, decoded));
-    }
-  }
-  return rows;
 }
 
 export async function POST(req: Request) {
@@ -146,9 +60,12 @@ export async function POST(req: Request) {
   }
 
   try {
+    // Blocks arrive at the top level or under an "event" envelope; support both.
+    const { apply, rollback } = blockEnvelope(payload);
+
     // Rollback before apply: if a reorg both rolls back and re-applies a tx, the
     // apply pass below restores reverted=false, leaving the correct final state.
-    const rolledBack = (payload.rollback ?? [])
+    const rolledBack = (rollback ?? [])
       .flatMap(eventRowsFromBlock)
       .map((row) => row.tx_id);
 
@@ -158,7 +75,7 @@ export async function POST(req: Request) {
     // last matching event in the transaction. Multi-event contracts that need
     // every event should add an event index to the key (see the README).
     const byTxId = new Map<string, EventRow>();
-    for (const row of (payload.apply ?? []).flatMap(eventRowsFromBlock)) {
+    for (const row of (apply ?? []).flatMap(eventRowsFromBlock)) {
       byTxId.set(row.tx_id, row);
     }
     const rows = Array.from(byTxId.values());

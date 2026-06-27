@@ -12,8 +12,12 @@ events table and a contract-agnostic decoder.
 ## What it does
 
 - Exposes `POST /api/chainhooks`, a Hiro Chainhook HTTP-POST receiver.
-- Filters each delivery to `SmartContractEvent` print events from your contract,
-  decodes the Clarity tuple defensively, and writes one row per transaction.
+- Filters each delivery to print events from your contract, decodes the Clarity
+  tuple defensively, and writes one row per transaction.
+- Reads both Chainhook payload shapes: blocks at the top level (`apply`/`rollback`)
+  or nested under an `event` envelope, and print events delivered as
+  `SmartContractEvent` receipt events or as `contract_log` operations. When both
+  representations carry the same event in one transaction, it is de-duplicated.
 - Handles chain reorganizations: a `rollback` marks affected rows `reverted=true`;
   a re-`apply` un-reverts them. Upserts are keyed on `tx_id`, so redelivery and
   full replay are safe no-ops.
